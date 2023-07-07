@@ -1,6 +1,5 @@
 import logging
 import re
-from urllib import response
 from urllib.parse import urljoin
 
 import requests_cache
