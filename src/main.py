@@ -120,7 +120,8 @@ def pep(session):
         if status_pep_page not in EXPECTED_STATUS[preview_status]:
             error_message = (f'Несовподающие статусы:\n'
                              f'Статус в карточке: {status_pep_page}\n'
-                             f'Ожидание статусы: {EXPECTED_STATUS[preview_status]}')
+                             f'Ожидание статусы:'
+                             f' {EXPECTED_STATUS[preview_status]}')
             messages.append(error_message)
 
         total_peps += 1
