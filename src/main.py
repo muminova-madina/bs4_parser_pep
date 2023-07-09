@@ -1,3 +1,4 @@
+from collections import defaultdict
 import logging
 import re
 from urllib.parse import urljoin
@@ -37,6 +38,8 @@ def whats_new(session):
         results.append(
             (version_link, h1.text, dl_text)
         )
+    for row in results:
+        print(*[item.replace(chr(182), '') for item in row])
     return results
 
 
@@ -46,7 +49,7 @@ def latest_versions(session):
     if response is None:
         return
     soup = BeautifulSoup(response.text, 'lxml')
-    sidebar = soup.find('div', {'class': 'sphinxsidebarwrapper'})
+    sidebar = find_tag(soup, 'div', {'class': 'sphinxsidebarwrapper'})
     ul_tags = sidebar.find_all('ul')
     for ul in ul_tags:
         if 'All versions' in ul.text:
@@ -74,8 +77,6 @@ def download(session):
     """Парсер, который скачивает архив докуменнтации Python."""
     downloads_url = urljoin(MAIN_DOC_URL, 'download.html')
     response = get_response(session, downloads_url)
-    if response is None:
-        return
     soup = BeautifulSoup(response.text, 'lxml')
     main_tag = find_tag(soup, 'div', {'role': 'main'})
     table_tag = find_tag(main_tag, 'table', {'class': 'docutils'})
@@ -84,7 +85,6 @@ def download(session):
     pdf_a4_link = pdf_a4_tag['href']
     archive_url = urljoin(downloads_url, pdf_a4_link)
     filename = archive_url.split('/')[-1]
-    print(filename)
     downloads_dir = BASE_DIR / 'downloads'
     downloads_dir.mkdir(exist_ok=True)
     archive_path = downloads_dir / filename
@@ -101,33 +101,37 @@ def pep(session):
     section_tag = find_tag(soup, 'section', attrs={'id': 'numerical-index'})
     tbody_tag = find_tag(section_tag, 'tbody')
     tr_tags = tbody_tag.find_all('tr')
-    status_sum = {}
+    status_sum = defaultdict(int)
     total_peps = 0
-    results = [('Статус', 'Количество')]
+    messages = []
+
     for tag in tqdm(tr_tags):
-        total_peps += 1
         data = list(find_tag(tag, 'abbr').text)
         preview_status = data[1:][0] if len(data) > 1 else ''
-        url = urljoin(PEP_URL, find_tag(tag, 'a', attrs={
-            'class': 'pep reference internal'})['href'])
+        url = urljoin(PEP_URL, find_tag(
+            tag, 'a', attrs={'class': 'pep reference internal'})['href'])
         soup = BeautifulSoup(response.text, url)
-        table_info = find_tag(soup, 'dl', attrs={
-            'class': 'rfc2822 field=list simple'})
-        status_pep_page = table_info.find(
-            string='Status').parent.find_next_sibling('dd').string
-        if status_pep_page in status_sum:
-            status_sum[status_pep_page] += 1
-        if status_pep_page not in status_sum:
-            status_sum[status_pep_page] = 1
+        table_info = find_tag(
+            soup, 'dl', attrs={'class': 'rfc2822 field=list simple'})
+        status_pep_page = find_tag(
+            table_info, string='Status').parent.find_next_sibling('dd').string
+        status_sum[status_pep_page] += 1
+
         if status_pep_page not in EXPECTED_STATUS[preview_status]:
             error_message = (f'Несовподающие статусы:\n'
                              f'Статус в карточке: {status_pep_page}\n'
-                             f'Ожидание статусы: '
-                             f'{EXPECTED_STATUS[preview_status]}')
-            logging.warning(error_message)
-    for status in status_sum:
-        results.append((status, status_sum[status]))
+                             f'Ожидание статусы: {EXPECTED_STATUS[preview_status]}')
+            messages.append(error_message)
+
+        total_peps += 1
+
+    logging.warning('\n'.join(messages))
+
+    results = [('Статус', 'Количество')]
+    for status, count in status_sum.items():
+        results.append((status, count))
     results.append(('Total', total_peps))
+
     return results
 
 
