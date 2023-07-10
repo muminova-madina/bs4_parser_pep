@@ -37,6 +37,7 @@ def whats_new(session):
         results.append(
             (version_link, h1.text, dl_text)
         )
+    return results
 
 
 def latest_versions(session):
