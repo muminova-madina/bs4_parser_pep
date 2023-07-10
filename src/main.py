@@ -10,7 +10,7 @@ from tqdm import tqdm
 from configs import configure_argument_parser, configure_logging
 from constants import MAIN_DOC_URL, BASE_DIR, PEP_URL, EXPECTED_STATUS
 from outputs import control_output
-from utils import get_response, find_tag
+from utils import get_response, find_tag, logging_status_error
 
 
 def whats_new(session):
@@ -38,9 +38,6 @@ def whats_new(session):
         results.append(
             (version_link, h1.text, dl_text)
         )
-    for row in results:
-        print(*[item.replace(chr(182), '') for item in row])
-    return results
 
 
 def latest_versions(session):
@@ -77,6 +74,8 @@ def download(session):
     """Парсер, который скачивает архив докуменнтации Python."""
     downloads_url = urljoin(MAIN_DOC_URL, 'download.html')
     response = get_response(session, downloads_url)
+    if response is None:
+        return
     soup = BeautifulSoup(response.text, 'lxml')
     main_tag = find_tag(soup, 'div', {'role': 'main'})
     table_tag = find_tag(main_tag, 'table', {'class': 'docutils'})
@@ -89,51 +88,57 @@ def download(session):
     downloads_dir.mkdir(exist_ok=True)
     archive_path = downloads_dir / filename
     response = session.get(archive_url)
+    if response is None:
+        return
     with open(archive_path, 'wb') as file:
         file.write(response.content)
     logging.info(f'Архив был загружен и сохранён: {archive_path}')
 
 
 def pep(session):
-    """Парсинг документов PEP."""
     response = get_response(session, PEP_URL)
-    soup = BeautifulSoup(response.text, 'lxml')
-    section_tag = find_tag(soup, 'section', attrs={'id': 'numerical-index'})
-    tbody_tag = find_tag(section_tag, 'tbody')
-    tr_tags = tbody_tag.find_all('tr')
-    status_sum = defaultdict(int)
-    total_peps = 0
-    messages = []
+    if response is None:
+        return None
 
-    for tag in tqdm(tr_tags):
-        data = list(find_tag(tag, 'abbr').text)
-        preview_status = data[1:][0] if len(data) > 1 else ''
-        url = urljoin(PEP_URL, find_tag(
-            tag, 'a', attrs={'class': 'pep reference internal'})['href'])
-        soup = BeautifulSoup(response.text, url)
-        table_info = find_tag(
-            soup, 'dl', attrs={'class': 'rfc2822 field=list simple'})
-        status_pep_page = find_tag(
-            table_info, string='Status').parent.find_next_sibling('dd').string
-        status_sum[status_pep_page] += 1
+    soup = BeautifulSoup(response.text, features='lxml')
+    pep_table = find_tag(soup, 'section', attrs={'id': 'numerical-index'})
+    pep_table_data = find_tag(pep_table, 'tbody')
+    pep_tags = pep_table_data.find_all('tr')
+    errors = []
+    pep_list = []
+    result = [('Статус', 'Количество')]
+    for pep_tag in tqdm(pep_tags):
+        pep_abbr = find_tag(pep_tag, 'abbr')
+        preview_status = pep_abbr.text[1:]
+        href = find_tag(pep_tag, 'a')['href']
+        pep_link = urljoin(PEP_URL, href)
+        response = get_response(session, pep_link)
+        if response is None:
+            continue
+        soup = BeautifulSoup(response.text, features='lxml')
+        description = find_tag(
+            soup, 'dl', attrs={'class': 'rfc2822 field-list simple'})
+        td = description.find(string='Status')
+        status = td.find_parent().find_next_sibling().text
+        pep_list.append(status)
 
-        if status_pep_page not in EXPECTED_STATUS[preview_status]:
-            error_message = (f'Несовподающие статусы:\n'
-                             f'Статус в карточке: {status_pep_page}\n'
-                             f'Ожидание статусы:'
-                             f' {EXPECTED_STATUS[preview_status]}')
-            messages.append(error_message)
+        try:
+            if status not in EXPECTED_STATUS[preview_status]:
+                errors.append((pep_link, preview_status, status))
+        except KeyError:
+            logging.error('Непредвиденный код статуса в превью: '
+                          f'{preview_status}')
 
-        total_peps += 1
+    logging_status_error(errors)
 
-    logging.warning('\n'.join(messages))
-
-    results = [('Статус', 'Количество')]
-    for status, count in status_sum.items():
-        results.append((status, count))
-    results.append(('Total', total_peps))
-
-    return results
+    statuses = []
+    for status_list in EXPECTED_STATUS.values():
+        for status in status_list:
+            if status not in statuses:
+                statuses.append(status)
+                result.append((status, pep_list.count(status)))
+    result.append(('Total', len(pep_list)))
+    return result
 
 
 MODE_TO_FUNCTION = {
