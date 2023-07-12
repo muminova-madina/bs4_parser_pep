@@ -1,6 +1,7 @@
 import logging
 import re
 from urllib.parse import urljoin
+from collections import defaultdict
 
 import requests_cache
 from bs4 import BeautifulSoup
@@ -105,8 +106,10 @@ def pep(session):
     pep_table_data = find_tag(pep_table, 'tbody')
     pep_tags = pep_table_data.find_all('tr')
     errors = []
-    pep_list = []
     result = [('Статус', 'Количество')]
+    status_sum = defaultdict(int)
+    error_messages = []
+
     for pep_tag in tqdm(pep_tags):
         pep_abbr = find_tag(pep_tag, 'abbr')
         preview_status = pep_abbr.text[1:]
@@ -120,24 +123,24 @@ def pep(session):
             soup, 'dl', attrs={'class': 'rfc2822 field-list simple'})
         td = description.find(string='Status')
         status = td.find_parent().find_next_sibling().text
-        pep_list.append(status)
 
         try:
             if status not in EXPECTED_STATUS[preview_status]:
                 errors.append((pep_link, preview_status, status))
+                error_message = (f'Несовпадающие статусы:\n'
+                                 f'Статус в карточке: {status}\n'
+                                 f'Ожидаемые статусы: {EXPECTED_STATUS[preview_status]}')
+                error_messages.append(error_message)
         except KeyError:
             logging.error('Непредвиденный код статуса в превью: '
                           f'{preview_status}')
 
-    logging_status_error(errors)
+        status_sum[status] += 1
 
-    statuses = []
-    for status_list in EXPECTED_STATUS.values():
-        for status in status_list:
-            if status not in statuses:
-                statuses.append(status)
-                result.append((status, pep_list.count(status)))
-    result.append(('Total', len(pep_list)))
+    logging.warning('\n'.join(error_messages))
+
+    result.extend(status_sum.items())
+    result.append(('Total', sum(status_sum.values())))
     return result
 
 
