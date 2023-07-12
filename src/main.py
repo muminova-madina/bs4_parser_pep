@@ -10,7 +10,7 @@ from tqdm import tqdm
 from configs import configure_argument_parser, configure_logging
 from constants import MAIN_DOC_URL, BASE_DIR, PEP_URL, EXPECTED_STATUS
 from outputs import control_output
-from utils import get_response, find_tag, logging_status_error
+from utils import get_response, find_tag
 
 
 def whats_new(session):
@@ -129,7 +129,8 @@ def pep(session):
                 errors.append((pep_link, preview_status, status))
                 error_message = (f'Несовпадающие статусы:\n'
                                  f'Статус в карточке: {status}\n'
-                                 f'Ожидаемые статусы: {EXPECTED_STATUS[preview_status]}')
+                                 f'Ожидаемые статусы:'
+                                 f' {EXPECTED_STATUS[preview_status]}')
                 error_messages.append(error_message)
         except KeyError:
             logging.error('Непредвиденный код статуса в превью: '
